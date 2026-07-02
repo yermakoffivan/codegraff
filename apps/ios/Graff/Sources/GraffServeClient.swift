@@ -21,10 +21,11 @@ enum GraffError: LocalizedError {
 // POST /v1/sessions/{id} with a stdio-protocol request, streamed back as NDJSON.
 // The simulator's localhost maps to the host Mac, so 127.0.0.1:8787 reaches
 // `graff serve`. The `cube` transport is this same client with a different base
-// URL + a tenant capability header.
+// URL + token: the launch environment overrides the loopback defaults so the
+// app can point at a remote serve (e.g. a sandbox preview URL) without a rebuild.
 struct GraffServeClient {
-    var base: String = "http://127.0.0.1:8787"
-    var token: String? = nil
+    var base: String = ProcessInfo.processInfo.environment["GRAFF_SERVE_BASE"] ?? "http://127.0.0.1:8787"
+    var token: String? = ProcessInfo.processInfo.environment["GRAFF_SERVE_TOKEN"]
 
     private func makeRequest(_ path: String, method: String, json: [String: Any]? = nil) -> URLRequest {
         var r = URLRequest(url: URL(string: base + path)!)
