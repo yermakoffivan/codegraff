@@ -20,7 +20,8 @@ enum KeychainStore {
         return String(data: data, encoding: .utf8)
     }
 
-    static func set(_ account: String, _ value: String) {
+    @discardableResult
+    static func set(_ account: String, _ value: String) -> OSStatus {
         delete(account)
         let q: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -28,7 +29,7 @@ enum KeychainStore {
             kSecAttrAccount as String: account,
             kSecValueData as String: Data(value.utf8),
         ]
-        SecItemAdd(q as CFDictionary, nil)
+        return SecItemAdd(q as CFDictionary, nil)
     }
 
     static func delete(_ account: String) {
@@ -76,13 +77,25 @@ enum Gateway {
     static let base = "https://gateway.codegraff.com"
     private static let keyAccount = "codegraff-api-key"
 
+    // In-memory copy of the key: a Keychain persistence failure (ad-hoc sim
+    // builds without entitlements hit errSecMissingEntitlement) must not kill
+    // the just-signed-in session — worst case you sign in again next launch.
+    private static var memoryKey: String?
+
     // GRAFF_GATEWAY_KEY env override mirrors GRAFF_SERVE_BASE/TOKEN: it lets
     // the autotest harness inject a signed-in state without a device approval.
     static var apiKey: String? {
-        ProcessInfo.processInfo.environment["GRAFF_GATEWAY_KEY"] ?? KeychainStore.get(keyAccount)
+        ProcessInfo.processInfo.environment["GRAFF_GATEWAY_KEY"] ?? memoryKey ?? KeychainStore.get(keyAccount)
     }
-    static func signIn(key: String) { KeychainStore.set(keyAccount, key) }
-    static func signOut() { KeychainStore.delete(keyAccount) }
+    static func signIn(key: String) {
+        memoryKey = key
+        let status = KeychainStore.set(keyAccount, key)
+        if status != errSecSuccess { NSLog("Graff: keychain store failed (%d)", status) }
+    }
+    static func signOut() {
+        memoryKey = nil
+        KeychainStore.delete(keyAccount)
+    }
 
     private static func request(_ path: String, method: String, json: [String: Any]? = nil, authed: Bool) -> URLRequest {
         var r = URLRequest(url: URL(string: base + path)!)

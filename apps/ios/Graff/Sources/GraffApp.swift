@@ -12,10 +12,31 @@ struct GraffApp: App {
                 // Headless spin-down check: list the account's sandboxes and stop
                 // the first started one, so the flow is verifiable without taps.
                 NavigationStack { SandboxesView(onSignOut: {}, autoStopFirstStarted: true) }
+            } else if CommandLine.arguments.contains("--autotest-keychain") {
+                KeychainCheckView()
             } else {
                 SessionsListView()
             }
         }
+    }
+}
+
+// Launch with `--autotest-keychain` (+ GRAFF_GATEWAY_KEY in the env) to seed
+// the Keychain through the real signIn path and read it straight back —
+// proves credential persistence across launches without a device approval.
+struct KeychainCheckView: View {
+    var body: some View {
+        Text(Self.result)
+            .font(.system(.body, design: .monospaced))
+            .padding()
+    }
+    static var result: String {
+        guard let k = ProcessInfo.processInfo.environment["GRAFF_GATEWAY_KEY"] else {
+            return "no GRAFF_GATEWAY_KEY in env"
+        }
+        Gateway.signIn(key: k)
+        guard let back = KeychainStore.get("codegraff-api-key") else { return "keychain store FAILED" }
+        return "keychain ok: \(back.prefix(9))… persisted"
     }
 }
 
