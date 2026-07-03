@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SessionsListView: View {
     @State private var sessions = sampleSessions
+    @State private var showAccount = false
 
     var body: some View {
         NavigationStack {
@@ -16,11 +17,16 @@ struct SessionsListView: View {
             }
             .navigationTitle("Sessions")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showAccount = true } label: { Image(systemName: "person.crop.circle") }
+                        .buttonStyle(.glass)
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { } label: { Image(systemName: "plus") }
                         .buttonStyle(.glass)
                 }
             }
+            .sheet(isPresented: $showAccount) { AccountView() }
         }
     }
 }

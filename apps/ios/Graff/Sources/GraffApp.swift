@@ -6,6 +6,12 @@ struct GraffApp: App {
         WindowGroup {
             if CommandLine.arguments.contains("--autotest") {
                 AutoTestView()
+            } else if CommandLine.arguments.contains("--autotest-signin") {
+                AccountView()
+            } else if CommandLine.arguments.contains("--autotest-sandboxes") {
+                // Headless spin-down check: list the account's sandboxes and stop
+                // the first started one, so the flow is verifiable without taps.
+                NavigationStack { SandboxesView(onSignOut: {}, autoStopFirstStarted: true) }
             } else {
                 SessionsListView()
             }
