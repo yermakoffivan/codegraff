@@ -168,6 +168,35 @@ struct CubeAutoTestView: View {
             let content = (check.result ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
             lines.append("sandbox file: \(content)")
             lines.append(content == "BUILT-FROM-IOS" ? "CUBE-BUILD-PASS" : "CUBE-BUILD-FAIL")
+
+            // GitHub: prove the cube carries the account's repo access — the
+            // same check the CLI verify runs, from the app's own pipeline.
+            if let login = conn.githubLogin {
+                let gh = try await Gateway.exec(conn.sandboxID,
+                    command: "GH_TOKEN=$(cat $HOME/.cube-github-token) $HOME/bin/gh api /installation/repositories -q .total_count",
+                    timeoutSeconds: 30)
+                let n = (gh.result ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                lines.append("gh sees \(n) repos as \(login)")
+                lines.append(Int(n) != nil ? "CUBE-GH-PASS" : "CUBE-GH-FAIL")
+            } else {
+                lines.append("CUBE-GH-SKIP (github not connected)")
+            }
+
+            // History: round-trip a transcript through the account store.
+            let hist = AgentSession(title: "cube autotest", model: "codegraff", status: .done,
+                                    lastActivity: "now", todos: [],
+                                    messages: [ChatMessage(role: .user, text: "autotest build"),
+                                               ChatMessage(role: .assistant, text: "DONE")],
+                                    cube: conn)
+            let hid = hist.id.uuidString.lowercased()
+            try await Gateway.putAppSession(id: hid, title: hist.title, model: hist.model,
+                                            sandboxID: conn.sandboxID,
+                                            transcript: AppSessionSync.transcriptJSON(hist.messages))
+            let back = try await Gateway.fetchAppSession(hid)
+            let msgs = AppSessionSync.messages(fromTranscript: back.transcript)
+            lines.append("history: \(msgs.count) msgs round-tripped")
+            lines.append(msgs.count == 2 && msgs[1].text == "DONE" ? "CUBE-HIST-PASS" : "CUBE-HIST-FAIL")
+            try? await Gateway.deleteAppSession(hid)
         } catch {
             lines.append("FAIL: \(error.localizedDescription)")
         }

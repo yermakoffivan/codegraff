@@ -133,7 +133,10 @@ enum SessionStatus: String {
 }
 
 struct AgentSession: Identifiable {
-    let id = UUID()
+    // Settable so history rows keep their server id across launches; sessions
+    // synced from the account are hydrated (transcript fetched) on first open.
+    var id = UUID()
+    var needsHydration = false
     var title: String
     var model: String
     var status: SessionStatus

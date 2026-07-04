@@ -84,6 +84,26 @@ struct PortPreview: Decodable {
     let token: String?
 }
 
+// /v1/app/sessions list rows (no transcript — the list stays light) and the
+// full row fetched when a session is opened.
+struct AppSessionRow: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let model: String
+    let sandbox_id: String?
+    let created_at: Int
+    let updated_at: Int
+}
+
+struct AppSessionFull: Decodable {
+    let id: String
+    let title: String
+    let model: String
+    let sandbox_id: String?
+    let transcript: String
+    let updated_at: Int
+}
+
 enum GatewayError: LocalizedError {
     case http(Int, String)
     var errorDescription: String? {
@@ -196,5 +216,83 @@ enum Gateway {
             request("/v1/sandboxes/\(id)/ports/\(port)/preview", method: "GET", authed: true))
         try check(data, resp)
         return try JSONDecoder().decode(PortPreview.self, from: data)
+    }
+
+    static func startSandbox(_ id: String) async throws -> String {
+        let (data, resp) = try await URLSession.shared.data(for:
+            request("/v1/sandboxes/\(id)/start", method: "POST", json: [:], authed: true))
+        try check(data, resp)
+        let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        return obj["state"] as? String ?? "started"
+    }
+
+    // ── Account-synced session history (/v1/app/sessions) ──
+    // The transcript is ours to shape; the gateway stores it as an opaque
+    // JSON blob per (account, session id). History survives its sandbox.
+
+    static func listAppSessions() async throws -> [AppSessionRow] {
+        let (data, resp) = try await URLSession.shared.data(for:
+            request("/v1/app/sessions", method: "GET", authed: true))
+        try check(data, resp)
+        return try JSONDecoder().decode([AppSessionRow].self, from: data)
+    }
+
+    static func fetchAppSession(_ id: String) async throws -> AppSessionFull {
+        let (data, resp) = try await URLSession.shared.data(for:
+            request("/v1/app/sessions/\(id)", method: "GET", authed: true))
+        try check(data, resp)
+        return try JSONDecoder().decode(AppSessionFull.self, from: data)
+    }
+
+    static func putAppSession(id: String, title: String, model: String, sandboxID: String?, transcript: String) async throws {
+        var body: [String: Any] = ["title": title, "model": model, "transcript": transcript]
+        if let sandboxID { body["sandbox_id"] = sandboxID }
+        let (data, resp) = try await URLSession.shared.data(for:
+            request("/v1/app/sessions/\(id)", method: "PUT", json: body, authed: true))
+        try check(data, resp)
+    }
+
+    static func deleteAppSession(_ id: String) async throws {
+        let (data, resp) = try await URLSession.shared.data(for:
+            request("/v1/app/sessions/\(id)", method: "DELETE", authed: true))
+        try check(data, resp)
+    }
+}
+
+// ── Transcript wire format + sync helpers ──
+
+struct MessageDTO: Codable {
+    let role: String
+    let text: String
+    let reasoning: String?
+}
+
+enum AppSessionSync {
+    static func transcriptJSON(_ messages: [ChatMessage]) -> String {
+        let dtos = messages.map { MessageDTO(role: $0.role == .user ? "user" : "assistant",
+                                             text: $0.text, reasoning: $0.reasoning) }
+        let data = (try? JSONEncoder().encode(dtos)) ?? Data("[]".utf8)
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+
+    static func messages(fromTranscript json: String) -> [ChatMessage] {
+        guard let data = json.data(using: .utf8),
+              let dtos = try? JSONDecoder().decode([MessageDTO].self, from: data) else { return [] }
+        return dtos.map { ChatMessage(role: $0.role == "user" ? .user : .assistant,
+                                      text: $0.text, reasoning: $0.reasoning) }
+    }
+
+    // Fire-and-forget: history sync must never block or break the chat.
+    static func save(_ session: AgentSession) {
+        guard Gateway.apiKey != nil else { return }
+        let id = session.id.uuidString.lowercased()
+        let transcript = transcriptJSON(session.messages)
+        let title = session.title
+        let model = session.model
+        let sandboxID = session.cube?.sandboxID
+        Task.detached {
+            try? await Gateway.putAppSession(id: id, title: title, model: model,
+                                             sandboxID: sandboxID, transcript: transcript)
+        }
     }
 }

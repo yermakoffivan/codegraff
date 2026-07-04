@@ -59,9 +59,10 @@ struct GraffServeClient {
     // yolo=true asks serve for a session whose tools run without approval
     // prompts — right for cube sessions in a disposable sandbox, never for
     // a serve on your own machine.
-    func createSession(model: String, yolo: Bool = false) async throws -> String {
+    func createSession(model: String, yolo: Bool = false, appendSystemPrompt: String? = nil) async throws -> String {
         var body: [String: Any] = ["model": model]
         if yolo { body["yolo"] = true }
+        if let appendSystemPrompt { body["append_system_prompt"] = appendSystemPrompt }
         let (data, resp) = try await URLSession.shared.data(for: makeRequest("/v1/sessions", method: "POST", json: body))
         guard Self.ok(resp),
               let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
