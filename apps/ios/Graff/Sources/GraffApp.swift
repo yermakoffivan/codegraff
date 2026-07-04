@@ -14,6 +14,13 @@ struct GraffApp: App {
                 NavigationStack { SandboxesView(onSignOut: {}, autoStopFirstStarted: true) }
             } else if CommandLine.arguments.contains("--autotest-keychain") {
                 KeychainCheckView()
+            } else if CommandLine.arguments.contains("--autotest-cube") {
+                // Headless "build for me" proof: broker a cube, have the agent
+                // create a file in it via bash, verify through gateway exec.
+                CubeAutoTestView()
+            } else if CommandLine.arguments.contains("--autotest-compose") {
+                // Render the new-session compose sheet standalone for visual QA.
+                NewSessionView { _ in }
             } else {
                 SessionsListView()
             }
@@ -134,6 +141,9 @@ struct AgentSession: Identifiable {
     var todos: [TodoItem]
     var messages: [ChatMessage]
     var planPending: Bool = false
+    // Set for sessions running in a cloud sandbox (the cube transport);
+    // nil means the env/loopback serve default.
+    var cube: CubeConnection? = nil
     var progress: (done: Int, total: Int) {
         (todos.filter { $0.status == .completed }.count, todos.count)
     }

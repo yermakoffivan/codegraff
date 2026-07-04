@@ -5,16 +5,22 @@ struct ChatView: View {
     var autoSend: String? = nil
 
     @State private var draft: String = ""
-    @State private var client = GraffServeClient()
+    // Cube sessions carry their own transport; everything else uses the
+    // env/loopback default (local serve on the host Mac).
+    private var client: GraffServeClient {
+        session.cube.map { GraffServeClient(cube: $0) } ?? GraffServeClient()
+    }
     @State private var serveSessionID: String?
     @State private var streaming = false
     @State private var didAutoSend = false
 
     var body: some View {
         VStack(spacing: 0) {
-            TaskProgressCard(session: session)
-                .padding(.horizontal)
-                .padding(.top, 8)
+            if !session.todos.isEmpty {
+                TaskProgressCard(session: session)
+                    .padding(.horizontal)
+                    .padding(.top, 8)
+            }
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -76,7 +82,7 @@ struct ChatView: View {
         defer { streaming = false }
         do {
             if serveSessionID == nil {
-                serveSessionID = try await client.createSession(model: session.model)
+                serveSessionID = try await client.createSession(model: session.model, yolo: session.cube != nil)
             }
             session.messages.append(ChatMessage(role: .assistant, text: ""))
             let idx = session.messages.count - 1
@@ -90,7 +96,10 @@ struct ChatView: View {
                     session.messages[idx].text = final
                 case .error(let m):
                     session.messages[idx].text = "Error: " + m
-                case .toolCall, .other:
+                case .toolCall(let name):
+                    session.messages[idx].reasoning = ((session.messages[idx].reasoning ?? "") + "\n⚙️ \(name)")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                case .other:
                     break
                 }
             }

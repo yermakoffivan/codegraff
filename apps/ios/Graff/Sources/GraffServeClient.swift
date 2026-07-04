@@ -26,6 +26,16 @@ enum GraffError: LocalizedError {
 struct GraffServeClient {
     var base: String = ProcessInfo.processInfo.environment["GRAFF_SERVE_BASE"] ?? "http://127.0.0.1:8787"
     var token: String? = ProcessInfo.processInfo.environment["GRAFF_SERVE_TOKEN"]
+    var previewToken: String? = ProcessInfo.processInfo.environment["GRAFF_SERVE_PREVIEW_TOKEN"]
+
+    init() {}
+    // The cube transport proper: same NDJSON contract, pointed at a sandbox
+    // preview URL with the Daytona token alongside the serve bearer.
+    init(cube: CubeConnection) {
+        base = cube.base
+        token = cube.serveToken
+        previewToken = cube.previewToken
+    }
 
     private func makeRequest(_ path: String, method: String, json: [String: Any]? = nil) -> URLRequest {
         var r = URLRequest(url: URL(string: base + path)!)
@@ -33,6 +43,7 @@ struct GraffServeClient {
         r.setValue("application/json", forHTTPHeaderField: "Content-Type")
         r.setValue("Graff-iOS/0.1", forHTTPHeaderField: "User-Agent") // CF WAF rejects empty UA on the gateway path
         if let token { r.setValue("Bearer " + token, forHTTPHeaderField: "Authorization") }
+        if let previewToken { r.setValue(previewToken, forHTTPHeaderField: "x-daytona-preview-token") }
         if let json { r.httpBody = try? JSONSerialization.data(withJSONObject: json) }
         return r
     }
@@ -45,8 +56,13 @@ struct GraffServeClient {
         (resp as? HTTPURLResponse)?.statusCode ?? -1
     }
 
-    func createSession(model: String) async throws -> String {
-        let (data, resp) = try await URLSession.shared.data(for: makeRequest("/v1/sessions", method: "POST", json: ["model": model]))
+    // yolo=true asks serve for a session whose tools run without approval
+    // prompts — right for cube sessions in a disposable sandbox, never for
+    // a serve on your own machine.
+    func createSession(model: String, yolo: Bool = false) async throws -> String {
+        var body: [String: Any] = ["model": model]
+        if yolo { body["yolo"] = true }
+        let (data, resp) = try await URLSession.shared.data(for: makeRequest("/v1/sessions", method: "POST", json: body))
         guard Self.ok(resp),
               let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let id = obj["session_id"] as? String else {
@@ -56,7 +72,8 @@ struct GraffServeClient {
     }
 
     func streamTurn(sessionID: String, text: String) -> AsyncThrowingStream<GraffEvent, Error> {
-        let req = makeRequest("/v1/sessions/" + sessionID, method: "POST", json: ["type": "user", "text": text])
+        var req = makeRequest("/v1/sessions/" + sessionID, method: "POST", json: ["type": "user", "text": text])
+        req.timeoutInterval = 600 // build turns can run for minutes between events
         return AsyncThrowingStream { continuation in
             let task = Task {
                 do {

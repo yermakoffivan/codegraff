@@ -66,6 +66,24 @@ struct Sandbox: Decodable, Identifiable {
     var label: String { labels?["purpose"] ?? labels?["app"] ?? "" }
 }
 
+// POST /v1/sandboxes returns a thinner object than the list rows, so decode
+// just what the broker needs.
+struct SandboxCreated: Decodable {
+    let id: String
+    let state: String?
+}
+
+struct ExecResult: Decodable {
+    let exitCode: Int?
+    let result: String?
+    let execId: String?
+}
+
+struct PortPreview: Decodable {
+    let url: String
+    let token: String?
+}
+
 enum GatewayError: LocalizedError {
     case http(Int, String)
     var errorDescription: String? {
@@ -145,5 +163,38 @@ enum Gateway {
         try check(data, resp)
         let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         return obj["state"] as? String ?? "stopped"
+    }
+
+    // The cube broker's REST legs — the same calls `graff cube new` makes.
+    static func createSandbox(purpose: String, autoStopMinutes: Int = 30) async throws -> SandboxCreated {
+        let (data, resp) = try await URLSession.shared.data(for:
+            request("/v1/sandboxes", method: "POST",
+                    json: ["autoStopMinutes": autoStopMinutes, "labels": ["purpose": purpose]], authed: true))
+        try check(data, resp)
+        return try JSONDecoder().decode(SandboxCreated.self, from: data)
+    }
+
+    static func sandboxInfo(_ id: String) async throws -> Sandbox {
+        let (data, resp) = try await URLSession.shared.data(for:
+            request("/v1/sandboxes/\(id)", method: "GET", authed: true))
+        try check(data, resp)
+        return try JSONDecoder().decode(Sandbox.self, from: data)
+    }
+
+    static func exec(_ id: String, command: String, timeoutSeconds: Int, async asynch: Bool = false) async throws -> ExecResult {
+        var body: [String: Any] = ["command": command, "timeoutSeconds": timeoutSeconds]
+        if asynch { body["async"] = true }
+        var req = request("/v1/sandboxes/\(id)/exec", method: "POST", json: body, authed: true)
+        req.timeoutInterval = Double(timeoutSeconds) + 15 // outlive the sandbox-side timeout
+        let (data, resp) = try await URLSession.shared.data(for: req)
+        try check(data, resp)
+        return try JSONDecoder().decode(ExecResult.self, from: data)
+    }
+
+    static func preview(_ id: String, port: Int) async throws -> PortPreview {
+        let (data, resp) = try await URLSession.shared.data(for:
+            request("/v1/sandboxes/\(id)/ports/\(port)/preview", method: "GET", authed: true))
+        try check(data, resp)
+        return try JSONDecoder().decode(PortPreview.self, from: data)
     }
 }

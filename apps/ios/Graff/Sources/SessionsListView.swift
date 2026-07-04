@@ -3,6 +3,7 @@ import SwiftUI
 struct SessionsListView: View {
     @State private var sessions = sampleSessions
     @State private var showAccount = false
+    @State private var showNewSession = false
 
     var body: some View {
         NavigationStack {
@@ -22,11 +23,14 @@ struct SessionsListView: View {
                         .buttonStyle(.glass)
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { } label: { Image(systemName: "plus") }
+                    Button { showNewSession = true } label: { Image(systemName: "plus") }
                         .buttonStyle(.glass)
                 }
             }
             .sheet(isPresented: $showAccount) { AccountView() }
+            .sheet(isPresented: $showNewSession) {
+                NewSessionView { newSession in sessions.insert(newSession, at: 0) }
+            }
         }
     }
 }
