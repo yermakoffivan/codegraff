@@ -89,8 +89,13 @@ def run():
         p = subprocess.run([BIN, "--json"], input=stdin, text=True,
                            capture_output=True, timeout=60, env=env)
         out = p.stdout
+        print(f"  [debug] returncode={p.returncode}")
+        if p.stderr:
+            print(f"  [debug] stderr:\n{p.stderr[-4000:]}")
     except subprocess.TimeoutExpired as e:
         out = (e.stdout or b"").decode("utf-8", "ignore") if isinstance(e.stdout, bytes) else (e.stdout or "")
+        err = (e.stderr or b"").decode("utf-8", "ignore") if isinstance(e.stderr, bytes) else (e.stderr or "")
+        print(f"  [debug] TIMEOUT; stderr:\n{err[-4000:]}")
 
     acks = []
     for line in out.splitlines():
